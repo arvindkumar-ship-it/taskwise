@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Taskwise — AI agent for real-world productivity</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Inter:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">Taskwise</div>
+        <p class="brand-tag">Grounded answers. Approved actions.</p>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item is-active" data-view="ingest">Ingest</button>
+        <button class="nav-item" data-view="ask">Ask</button>
+        <button class="nav-item" data-view="tasks">Tasks</button>
+        <button class="nav-item" data-view="act">Act</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <span id="health-dot" class="health-dot"></span>
+        <span id="health-label">checking server…</span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- INGEST -->
+      <section class="view is-active" id="view-ingest">
+        <header class="view-head">
+          <h1>Ingest</h1>
+          <p>Add a document or paste text. It's chunked, embedded, and scanned for tasks automatically.</p>
+        </header>
+
+        <form id="ingest-form" class="panel">
+          <label class="field">
+            <span class="field-label">Upload a file</span>
+            <input type="file" id="ingest-file" accept=".pdf,.docx,.txt,.md" />
+            <span class="field-hint">PDF, DOCX, TXT, or MD</span>
+          </label>
+
+          <div class="divider"><span>or</span></div>
+
+          <label class="field">
+            <span class="field-label">Paste text</span>
+            <textarea id="ingest-text" rows="8" placeholder="Paste an email, meeting note, or requirements doc…"></textarea>
+          </label>
+
+          <button type="submit" class="btn btn-primary">Ingest</button>
+        </form>
+
+        <div id="ingest-result" class="result-block" hidden></div>
+      </section>
+
+      <!-- ASK -->
+      <section class="view" id="view-ask">
+        <header class="view-head">
+          <h1>Ask</h1>
+          <p>Questions are answered only from what you've ingested — with sources and a confidence read.</p>
+        </header>
+
+        <form id="ask-form" class="ask-bar">
+          <input type="text" id="ask-input" placeholder="What's the deadline for Project Alpha?" autocomplete="off" />
+          <button type="submit" class="btn btn-primary">Ask</button>
+        </form>
+
+        <div id="ask-thread" class="thread"></div>
+      </section>
+
+      <!-- TASKS -->
+      <section class="view" id="view-tasks">
+        <header class="view-head">
+          <h1>Tasks</h1>
+          <p>Everything extracted from ingested content, most recent first.</p>
+        </header>
+
+        <div id="tasks-list" class="task-list"></div>
+      </section>
+
+      <!-- ACT -->
+      <section class="view" id="view-act">
+        <header class="view-head">
+          <h1>Act</h1>
+          <p>Describe a goal. Sending email or creating calendar events pauses for your approval below.</p>
+        </header>
+
+        <form id="plan-form" class="ask-bar">
+          <input type="text" id="plan-input" placeholder="Email Priya the Friday deadline for Project Alpha" autocomplete="off" />
+          <button type="submit" class="btn btn-primary">Plan</button>
+        </form>
+
+        <div id="plan-result" class="result-block" hidden></div>
+
+        <div class="approvals-head">
+          <h2>Pending approvals</h2>
+        </div>
+        <div id="approvals-list" class="approvals-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
