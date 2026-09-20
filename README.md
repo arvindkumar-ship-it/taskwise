@@ -1,166 +1,130 @@
-# Taskwise — AI Agent for Real-World Productivity
+# Taskwise
 
-Turn unstructured input (documents, notes, emails you paste in, meeting notes)
-into grounded answers and executable action plans, with a human approving
-anything sensitive before it runs.
+An AI agent that turns unstructured text (documents, notes, pasted emails) into grounded answers and executable action plans. Anything with an external side effect, like sending an email, waits for a human to approve it.
 
-This is a real, runnable app — not a mockup. With a single `OPENAI_API_KEY`
-it runs end-to-end on your machine or any container host. Everything else
-(email sending, calendar creation) is optional: without those API keys the
-tools log the action to the database instead of failing, so the whole
-pipeline (ingest → extract → plan → approve → "execute") works out of the box.
+**Live demo:** https://taskwise-pl16.onrender.com
+
+The demo runs on Render's free tier. It sleeps after 15 minutes of inactivity, so the first request can take 30 to 60 seconds. There is no login and the database resets on redeploy, so don't upload anything sensitive.
+
+It runs end to end with a free Groq API key. No OpenAI key is needed. Email and calendar integrations are optional: without their keys the tools record the action in the database instead of failing.
 
 ## What it does
 
-- **Ingest** PDFs, DOCX, TXT, Markdown, or pasted text. Text is chunked and
-  embedded into a local vector store (Chroma).
-- **Extract** tasks, deadlines, priorities, and entities from anything you
-  ingest, automatically.
-- **Ask** questions and get answers grounded only in what you've ingested,
-  with cited sources and a confidence indicator, and an explicit "not enough
-  information" when the answer isn't in your documents.
-- **Plan** — give the agent a goal ("email Priya about the Friday deadline")
-  and it produces a concrete, numbered action plan using tools (send email,
-  create calendar event, create task).
-- **Approve** — sending an email or creating a calendar event always pauses
-  for your explicit approval before running. Creating an internal task does
-  not, since it carries no external side effect.
+- **Ingest** PDF, DOCX, TXT, Markdown or pasted text. The text is chunked and embedded into a vector store kept in SQLite.
+- **Extract** tasks, deadlines, priorities and entities from everything you ingest.
+- **Ask** questions and get answers based only on your documents, with the source chunks and a confidence score. If the answer isn't in the documents, it says so and marks the answer as ungrounded.
+- **Plan** from a goal such as "email Priya about the 25 Sept deadline". The agent picks tools (send email, create calendar event, create task) and returns the actions.
+- **Approve** before anything external runs. Emails and calendar events go to an approval queue. Creating an internal task does not need approval.
 
 ## Architecture
 
 ```
-Browser (static/) ──HTTP──> FastAPI (app/)
-                               ├── ingestion/   → parses PDF/DOCX/TXT/MD, chunks text
-                               ├── rag/          → embeds chunks, stores + searches in SQLite (pure Python, no compiled deps)
-                               ├── agent/        → extraction + planning + tool-calling (OpenAI)
-                               ├── tools/        → email / calendar / task actions
-                               ├── hitl/         → approval queue for sensitive tool calls
-                               └── db.py         → SQLite: documents, chunks/embeddings, tasks, approvals
+Browser (static/) --HTTP--> FastAPI (app/)
+                              |-- ingestion/  parse PDF/DOCX/TXT/MD, chunk text
+                              |-- rag/        embed chunks, store and search in SQLite
+                              |-- agent/      extraction, grounded Q&A, planning with tool calling
+                              |-- tools/      email, calendar, task actions
+                              |-- hitl/       approval queue for sensitive tool calls
+                              `-- db.py       SQLite: documents, chunks, tasks, approvals
 ```
 
-No LangChain/LangGraph, and no ChromaDB either — the agent loop is built
-directly on the OpenAI Python SDK (structured outputs + tool calling), and
-the vector store is a plain SQLite table with cosine similarity computed in
-Python. Nothing in this project needs a C++ compiler or native wheels, so
-`pip install -r requirements.txt` works the same on a bare Windows machine
-as anywhere else — this was a deliberate choice after the obvious pick,
-`chromadb`, turned out to require Visual C++ Build Tools on Windows via its
-`chroma-hnswlib` dependency. Fine for a single-instance deployment with up
-to a few thousand chunks; swap in a dedicated vector DB if you outgrow that.
+- No LangChain or LangGraph. The agent loop uses the OpenAI Python SDK (structured outputs and tool calling). Groq exposes an OpenAI-compatible endpoint, so the same client works for both providers.
+- Embeddings run locally with `fastembed` (`BAAI/bge-small-en-v1.5`, ONNX). No API key, no GPU, and no compiler needed on Windows.
+- The vector store is a SQLite table with cosine similarity computed in Python. That is enough for a few thousand chunks.
+- The planner checks the recipient of every `send_email` call. If the goal contains an explicit email address and the model returns a different one, the address from the goal is used. This fixes typos from smaller models.
 
 ## Setup
 
-Requirements: Python 3.11+, an OpenAI API key.
+Requirements: Python 3.11 or 3.12 and a free Groq API key from https://console.groq.com/keys.
+
+Python 3.14 is not supported: the pinned `pydantic` version has no wheel for it, and pip falls back to building from source, which needs a Rust toolchain.
 
 ```bash
-cd ai-productivity-agent
+git clone https://github.com/arvindkumar-ship-it/taskwise.git
+cd taskwise
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-cp .env.example .env
-# edit .env and set OPENAI_API_KEY
+cp .env.example .env             # Windows: copy .env.example .env
+# edit .env and set GROQ_API_KEY
 
 uvicorn app.main:app --reload --port 8000
 ```
 
-Open **http://localhost:8000** — the UI is served by the same server.
-API docs live at **http://localhost:8000/docs**.
+Open http://localhost:8000. API docs are at http://localhost:8000/docs.
 
-## Configuration (`.env`)
+On the first ingest, the embedding model (about 70 MB) is downloaded to `data/models`. On Windows you may see a HuggingFace symlink warning. It is harmless.
 
-| Variable | Required | Purpose |
+## Configuration
+
+All settings are read from `.env` or the environment.
+
+| Variable | Default | Purpose |
 |---|---|---|
-| `OPENAI_API_KEY` | yes | LLM + embeddings |
-| `OPENAI_MODEL` | no (default `gpt-4o-mini`) | chat model for extraction/planning |
-| `OPENAI_EMBEDDING_MODEL` | no (default `text-embedding-3-small`) | embeddings |
-| `DATABASE_PATH` | no (default `./data/app.db`) | SQLite file — also holds the vector index |
-| `LLM_PROVIDER` | no (default `openai`) | set to `groq` to run chat/extraction/planning on Groq instead |
-| `GROQ_API_KEY` | only if `LLM_PROVIDER=groq` | Groq chat completions |
-| `GROQ_MODEL` | no (default `llama-3.3-70b-versatile`) | Groq chat model |
-| `SENDGRID_API_KEY` | no | if set, `send_email` actually sends via SendGrid; otherwise it logs the action |
-| `EMAIL_FROM` | no | sender address when SendGrid is configured |
+| `LLM_PROVIDER` | `openai` (`groq` in `.env.example`) | `groq` or `openai` for chat, extraction and planning |
+| `GROQ_API_KEY` | none | Required when `LLM_PROVIDER=groq` |
+| `GROQ_MODEL` | `openai/gpt-oss-20b` | Groq chat model |
+| `EMBEDDING_PROVIDER` | `local` | `local` (fastembed) or `openai` |
+| `LOCAL_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | Model used for local embeddings |
+| `MODEL_CACHE_DIR` | `./data/models` | Where the local embedding model is cached |
+| `OPENAI_API_KEY` | none | Only needed if the LLM or embedding provider is `openai` |
+| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI chat model |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+| `DATABASE_PATH` | `./data/app.db` | SQLite file, also holds the vector index |
+| `SENDGRID_API_KEY` | none | If set, `send_email` sends through SendGrid. Otherwise it logs the action. |
+| `EMAIL_FROM` | none | Sender address when SendGrid is configured |
 
-### Using Groq instead of OpenAI for chat
-
-Groq's chat API is OpenAI-compatible and much faster/cheaper, but **Groq has
-no embeddings endpoint** — so `OPENAI_API_KEY` is still required even in this
-mode, purely for embeddings (`text-embedding-3-small` costs a fraction of a
-cent per document, so this is not a real cost concern). Set:
-
-```env
-LLM_PROVIDER=groq
-GROQ_API_KEY=gsk_your-key-here
-OPENAI_API_KEY=sk-your-key-here   # embeddings only in this mode
-```
-
-Task extraction, grounded Q&A, and the planner's tool-calling all run on
-Groq; document embedding and RAG search still use OpenAI.
-
-Calendar and task tools work the same way: real integrations are a couple of
-lines away in `app/tools/`, but the app is fully demoable without them.
+**Groq model choice.** Extraction and Q&A use strict `json_schema` output. On Groq this only works with `openai/gpt-oss-20b` and `openai/gpt-oss-120b`. Models such as `llama-3.3-70b-versatile` return a 400 error. If tool calls are unreliable, try `openai/gpt-oss-120b`.
 
 ## Docker
 
 ```bash
-cp .env.example .env   # set OPENAI_API_KEY first
+cp .env.example .env    # set GROQ_API_KEY
 docker compose up --build
 ```
 
-Serves on http://localhost:8000, with `./data` persisted on the host so the
-vector store and SQLite DB survive restarts.
+The app is served on http://localhost:8000 and `./data` is kept on the host. The Dockerfile downloads the embedding model at build time and reads `$PORT`, defaulting to 8000.
 
-## Deploying
+## Deploy on Render
 
-Any container host that takes a Dockerfile works (Render, Railway, Fly.io,
-a plain VM). Steps are the same everywhere:
+1. Create a new Web Service from this repository. Runtime: Docker. Branch: `main`.
+2. Set environment variables: `LLM_PROVIDER=groq`, `GROQ_API_KEY`, `GROQ_MODEL=openai/gpt-oss-20b`, `EMBEDDING_PROVIDER=local`.
+3. Set the health check path to `/health`.
 
-1. Set `OPENAI_API_KEY` (and any optional keys) as environment variables.
-2. Mount or provision a persistent volume at `/app/data` — this is where
-   SQLite and the Chroma index live. Without a persistent volume, ingested
-   data is lost on redeploy.
-3. Build from the included `Dockerfile` and expose port `8000`.
+The free instance has 512 MB of RAM and an ephemeral disk, so data is lost on redeploy or after the service spins down. For persistence, use a paid instance and mount a disk at `/app/data`.
 
-`deployment/deploy.sh` is a minimal example for a generic Docker-registry +
-SSH-host deployment; adapt the two variables at the top of the file.
+`deployment/deploy.sh` is a minimal example for a generic Docker registry plus SSH host.
 
-## API overview
+## API
 
-| Method & path | Purpose |
+| Method and path | Purpose |
 |---|---|
-| `POST /api/ingest` | Upload a file or paste text; chunks, embeds, extracts tasks |
+| `POST /api/ingest` | Upload a file or paste text. Chunks, embeds and extracts tasks. |
 | `GET /api/tasks` | List extracted tasks |
 | `POST /api/ask` | Grounded Q&A over ingested content |
-| `POST /api/plan` | Turn a goal into a numbered action plan (tool calls) |
-| `GET /api/approvals` | List pending/decided approvals |
-| `POST /api/approvals/{id}/approve` | Approve and run a sensitive action |
-| `POST /api/approvals/{id}/reject` | Reject a pending action |
+| `POST /api/plan` | Turn a goal into tool calls. Sensitive ones are queued for approval. |
+| `GET /api/approvals` | List pending and decided approvals |
+| `POST /api/approvals/{id}/approve` | Approve and run a queued action |
+| `POST /api/approvals/{id}/reject` | Reject a queued action |
 | `GET /health` | Liveness check |
 
-Full request/response schemas are in the auto-generated docs at `/docs`.
+Request and response schemas are in the generated docs at `/docs`.
 
-## Evaluation
-
-`tests/` includes a small pytest suite covering extraction and the RAG
-round-trip (ingest → retrieve). Run with:
+## Tests
 
 ```bash
 pytest tests/ -v
 ```
 
-For the metrics the challenge brief asks for (extraction accuracy, grounding
-rate, action-completion rate, HITL turnaround, confidence calibration), the
-extraction endpoint returns a `confidence` score per item and every `/ask`
-response returns a `grounded` flag plus the source chunks used, so these can
-be logged and scored against a held-out set of documents.
+The tests call a live model and are skipped when `OPENAI_API_KEY` is not set. Every `/api/ask` response includes a `grounded` flag and the source chunks, and every extracted task has a `confidence` score, so these can be logged and scored against a labelled set of documents.
 
 ## Known limits
 
-- The vector store is a brute-force cosine-similarity scan over SQLite —
-  simple and dependency-free, fine into the low thousands of chunks, not
-  built for horizontal scale. Swap `app/rag/vector_store.py` for a real
-  vector DB if you outgrow that.
-- SQLite is used for simplicity; swap `app/db.py` for Postgres if you need
-  concurrent writers.
-- `send_email` / calendar tools ship with SendGrid as the example real
-  integration; swap in whatever provider you actually use.
+- Relative dates such as "Friday" are not converted to calendar dates. Explicit dates work.
+- Ingesting the same text twice creates duplicate tasks.
+- Retrieval always returns the top chunks, so unrelated documents can show up in the sources of an ungrounded answer.
+- Small models sometimes ask a follow-up question instead of calling a tool. Put the details in the goal, or use `openai/gpt-oss-120b`. Check the body and subject on the approval screen before approving.
+- There is no authentication and all data lives in one shared database. Put it behind a login before using it with real data.
+- The vector search is a brute-force scan over SQLite. Replace `app/rag/vector_store.py` with a vector database for larger corpora, and `app/db.py` with Postgres if you need concurrent writers.
+- Email uses SendGrid as the example integration. Swap in your own provider in `app/tools/`.
