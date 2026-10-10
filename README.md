@@ -128,3 +128,5 @@ The tests call a live model and are skipped when `OPENAI_API_KEY` is not set. Ev
 - There is no authentication and all data lives in one shared database. Put it behind a login before using it with real data.
 - The vector search is a brute-force scan over SQLite. Replace `app/rag/vector_store.py` with a vector database for larger corpora, and `app/db.py` with Postgres if you need concurrent writers.
 - Email uses SendGrid as the example integration. Swap in your own provider in `app/tools/`.
+
+Audit repair scope, reproducible checks and remaining limitations: [AUDIT_FIXES.md](AUDIT_FIXES.md).

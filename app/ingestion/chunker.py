@@ -21,31 +21,30 @@ def _split(text: str, separators: list[str]) -> list[str]:
 
 
 def chunk_text(text: str, chunk_size: int = 800, chunk_overlap: int = 100) -> list[str]:
+    """Bounded source windows; overlap is included in the size budget.
+
+    Prefer separators in the latter part of each window, but hard-slice a
+    long paragraph/word when necessary. Preserve source characters instead
+    of concatenating an oversized paragraph onto an overlap prefix.
+    """
+    if chunk_size <= 0 or not 0 <= chunk_overlap < chunk_size:
+        raise ValueError("Require chunk_size > 0 and 0 <= chunk_overlap < chunk_size")
     text = text.strip()
     if not text:
         return []
-
-    pieces = _split(text, SEPARATORS)
     chunks: list[str] = []
-    current = ""
-
-    for piece in pieces:
-        candidate = f"{current} {piece}".strip() if current else piece
-        if len(candidate) <= chunk_size:
-            current = candidate
-            continue
-
-        if current:
-            chunks.append(current)
-            # carry the tail of the previous chunk forward for continuity
-            current = current[-chunk_overlap:] + " " + piece
-        else:
-            # a single piece longer than chunk_size — hard-slice it
-            for i in range(0, len(piece), chunk_size):
-                chunks.append(piece[i : i + chunk_size])
-            current = ""
-
-    if current:
-        chunks.append(current)
-
+    start = 0
+    while start < len(text):
+        end = min(start + chunk_size, len(text))
+        if end < len(text):
+            minimum = start + max(chunk_overlap + 1, chunk_size // 2)
+            for separator in SEPARATORS:
+                boundary = text.rfind(separator, minimum, end)
+                if boundary >= minimum:
+                    end = boundary + len(separator)
+                    break
+        chunks.append(text[start:end])
+        if end == len(text):
+            break
+        start = end - chunk_overlap
     return chunks
