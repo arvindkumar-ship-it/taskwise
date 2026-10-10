@@ -190,3 +190,17 @@ def set_approval_status(approval_id: str, status: str, result: dict | None = Non
             "UPDATE approvals SET status = ?, result = ?, decided_at = ? WHERE id = ?",
             (status, json.dumps(result) if result is not None else None, _now(), approval_id),
         )
+
+
+def transition_approval(approval_id: str, expected: str, status: str, result: dict | None = None) -> bool:
+    """Compare-and-set the durable state before executing an external effect.
+
+    A crashed/uncertain execution is never silently reset to pending. A
+    provider-specific idempotency/reconciliation flow is needed to retry it.
+    """
+    with get_conn() as conn:
+        cursor = conn.execute(
+            "UPDATE approvals SET status = ?, result = ?, decided_at = ? WHERE id = ? AND status = ?",
+            (status, json.dumps(result) if result is not None else None, _now(), approval_id, expected),
+        )
+        return cursor.rowcount == 1
